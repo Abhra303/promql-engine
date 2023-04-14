@@ -7,9 +7,11 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 
 	"github.com/efficientgo/core/errors"
+	prom_model "github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
 
@@ -179,6 +181,9 @@ func (o *functionOperator) Next(ctx context.Context) ([]model.StepVector, error)
 	if len(vectors) == 0 {
 		return nil, nil
 	}
+	if o.funcExpr.Func.Name == "label_join" {
+		return vectors, nil
+	}
 
 	scalarIndex := 0
 	for i := range o.nextOps {
@@ -287,10 +292,62 @@ func (o *functionOperator) loadSeries(ctx context.Context) error {
 		}
 
 		o.series = make([]labels.Labels, len(series))
+
+		var labelJoinDst string
+		var labelJoinSep string
+		var labelJoinSrcLabels []string
+		if o.funcExpr.Func.Name == "label_join" {
+			l := len(o.funcExpr.Args)
+			if l < 3 {
+				err = errors.New("invalid function arguments: atleast 3 arguments required")
+				return
+			}
+
+			labelJoinDstLiteral, ok := o.funcExpr.Args[1].(*parser.StringLiteral)
+			if !ok {
+				err = errors.New("invalid function arguments: dst label is not a string")
+				return
+			}
+			labelJoinDst = labelJoinDstLiteral.Val
+			if !prom_model.LabelName(labelJoinDst).IsValid() {
+				err = errors.Newf("invalid destination label name in label_join: %s", labelJoinDst)
+				return
+			}
+			labelJoinSepLiteral, ok := o.funcExpr.Args[2].(*parser.StringLiteral)
+			if !ok {
+				err = errors.New("invalid function arguments: seperator is not a string")
+				return
+			}
+			labelJoinSep = labelJoinSepLiteral.Val
+			for j := 3; j < l; j++ {
+				literal, ok := o.funcExpr.Args[j].(*parser.StringLiteral)
+				if !ok {
+					err = errors.New("invalid function arguments: source label is not a string")
+					return
+				}
+				labelJoinSrcLabels = append(labelJoinSrcLabels, literal.Val)
+			}
+		}
 		for i, s := range series {
 			lbls := s
 			switch o.funcExpr.Func.Name {
 			case "last_over_time":
+			case "label_join":
+				srcVals := make([]string, len(labelJoinSrcLabels))
+
+				for j, src := range labelJoinSrcLabels {
+					srcVals[j] = lbls.Get(src)
+				}
+				lb := labels.NewBuilder(lbls)
+
+				strval := strings.Join(srcVals, labelJoinSep)
+				if strval == "" {
+					lb.Del(labelJoinDst)
+				} else {
+					lb.Set(labelJoinDst, strval)
+				}
+
+				lbls = lb.Labels(nil)
 			default:
 				lbls, _ = DropMetricName(s.Copy())
 			}

@@ -209,6 +209,10 @@ var Funcs = map[string]FunctionCall{
 			},
 		}
 	},
+	"label_join": func(f FunctionArgs) promql.Sample {
+		// This is specifically handled by functionOperator Series()
+		return promql.Sample{}
+	},
 	"present_over_time": func(f FunctionArgs) promql.Sample {
 		if len(f.Points) == 0 {
 			return InvalidSample
