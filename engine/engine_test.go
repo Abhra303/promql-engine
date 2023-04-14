@@ -2475,6 +2475,12 @@ func TestInstantQuery(t *testing.T) {
 			query:     "12 + 1",
 		},
 		{
+			name:      "string literal",
+			load:      ``,
+			queryTime: time.Unix(160, 0),
+			query:     "test-string-literal",
+		},
+		{
 			name: "increase plus offset",
 			load: `load 1s
 			http_requests_total{pod="nginx-1"} 1+1x180`,
